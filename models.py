@@ -5,6 +5,23 @@ from sklearn.naive_bayes import MultinomialNB, CategoricalNB, GaussianNB, Bernou
 from sklearn.pipeline import make_pipeline
 from sklearn.model_selection import cross_validate, RepeatedStratifiedKFold
 from statistics import mean
+from catboost import CatBoostClassifier
+
+
+def cross_validate_model(model, data, y):
+    cv = RepeatedStratifiedKFold(n_splits=5, n_repeats=5, random_state=42)
+    cv_res = cross_validate(
+        model,
+        data,
+        y,
+        cv=cv,
+        n_jobs=1,
+        scoring={"f1": make_scorer(lambda yt, yp: f1_score(yt, yp, average='macro')),
+                    "accuracy": make_scorer(accuracy_score)}
+    )
+    cv_res = {key: mean(cv_res[key]) for key in cv_res}
+    return cv_res
+
 
 def multinomial_baseline():
     data = pd.read_parquet("train_no_trash.pqt")
@@ -13,22 +30,27 @@ def multinomial_baseline():
                 for document_class_index, document_class in zip(class_map[0], class_map[1])}
 
     data['Класс документа (индекс)'] = data['Класс документа'].apply(class_map.get)
-    print(data)
-
-    cv = RepeatedStratifiedKFold(n_splits=5, n_repeats=5, random_state=42)
     model = make_pipeline(TfidfVectorizer(lowercase=False, analyzer='word', min_df=3), MultinomialNB())
-    cv_res = cross_validate(
-        model,
-        data['Текст документа'],
-        data['Класс документа (индекс)'],
-        cv=cv,
-        n_jobs=-1,
-        scoring={"f1": make_scorer(lambda yt, yp: f1_score(yt, yp, average='macro')),
-                    "accuracy": make_scorer(accuracy_score)}
+    print(cross_validate_model(model, data['Текст документа'], data['Класс документа (индекс)']))
+
+
+def catboost_baseline():
+    data = pd.read_parquet("train_no_trash.pqt")
+    class_map = pd.factorize(data['Класс документа'])
+    class_map = {document_class: document_class_index
+                for document_class_index, document_class in zip(class_map[0], class_map[1])}
+
+    data['Класс документа (индекс)'] = data['Класс документа'].apply(class_map.get)
+    clf = CatBoostClassifier(
+        n_estimators=100,
+        text_features=["Текст документа"]
     )
-    cv_res = {key: mean(cv_res[key]) for key in cv_res}
-    print(cv_res)
+    print(cross_validate_model(clf, data[['Текст документа']], data['Класс документа (индекс)']))
+    
 
 
 if __name__ == "__main__":
+    print("MultinomailNB:")
     multinomial_baseline()
+    print("CatBoost:")
+    catboost_baseline()
