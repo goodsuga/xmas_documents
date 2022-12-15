@@ -45,8 +45,3 @@ def clear_texts(texts: Iterable) -> 'List[str]':
         return clear
     
     return list(map(preprocess, tqdm(texts)))
-
-
-#data = pd.read_parquet("train.pqt")
-#data.loc[:, "Текст документа"] = clear_texts(data['Текст документа'])
-#data.to_parquet("train_no_trash.pqt")
