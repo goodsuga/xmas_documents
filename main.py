@@ -119,7 +119,7 @@ class DocumentClassifier:
         prediction_data = []
         for text in tqdm(df['Текст документа']):
             info = {
-                "Прогноз (по лучшей модели)": reverse_class_map.get(self.best_model.predict([text])),
+                "Прогноз (по лучшей модели)": reverse_class_map.get(self.best_model.predict([text])[0]),
                 "Уверенность лучшей модели": self._transform_confidence(self.best_model.predict_proba([text])),
                 "Средняя уверенность (по всем моделям)": self._transform_confidence(self._avg_pred(text, 'all')),
                 "Прогноз всех моделей (методом среднего)": reverse_class_map.get(self._avg_pred(text, 'single')),
@@ -128,7 +128,7 @@ class DocumentClassifier:
             for modelname in self.models:
                 info["График уверенности и главных слов"][modelname] =\
                     explain_instance(self.models[modelname], self.class_map, text, document_name="Пример названия документа")
-                #info["График уверенности и главных слов"][modelname].show()
+                info["График уверенности и главных слов"][modelname].show()
             pprint(info)
             prediction_data.append(info)
 
@@ -140,4 +140,4 @@ e = DocumentClassifier()
 e.train(Path(r"C:\Users\teberda\Documents\GitHub\xmas_documents\docs"),
         Path(r"C:\Users\teberda\Documents\GitHub\xmas_documents\classes.json"))
 
-e.predict(Path(r"C:\Users\teberda\Documents\GitHub\xmas_documents\docs"))
+e.predict(Path(r"C:\Users\teberda\Documents\GitHub\xmas_documents\docs_test"))

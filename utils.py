@@ -214,7 +214,7 @@ def _logistic_reg_objective(cv: RepeatedStratifiedKFold, X, y, trial: optuna.Tri
 def _sgd_objective(cv: RepeatedStratifiedKFold, X, y, trial: optuna.Trial) -> float:
     vec = _propose_vec(trial)
     losses = ['log_loss',
-              'modified_huber', 'squared_hinge',
+              'modified_huber',
               'huber', 'epsilon_insensitive',
               'squared_epsilon_insensitive'
     ]
