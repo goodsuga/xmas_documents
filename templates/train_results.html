@@ -1,0 +1,18 @@
+{% extends 'base.html' %}
+
+{% block title %}
+Обучение
+{% endblock %}
+
+{% block body %}
+
+<div class="container">
+  {% for graph in img_paths %}
+  <div class="alert alert-info">
+      <h2>{{graph}}</h2>
+      <img class="card-img-right flex-auto d-none d-md-block" data-src="holder.js/200x250?theme=thumb" alt="Thumbnail [1000x1000]" style="width: 1000px; height: 1000px;" src="/static/images/{{ graph }}" data-holder-rendered="true">
+  </div>
+  {% endfor %}
+</div>
+
+{% endblock %}

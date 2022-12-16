@@ -1,0 +1,35 @@
+{% extends 'base.html' %}
+
+{% block title %}
+Главная страница
+{% endblock %}
+
+{% block body %}
+
+<div class="row mb-2">
+        <div class="col-md-6">
+          <div class="card flex-md-row mb-4 box-shadow h-md-250">
+            <div class="card-body d-flex flex-column align-items-start">
+              <strong class="d-inline-block mb-2 text-primary">Train</strong>
+              <div class="mb-1 text-muted">Обучение моделей и подбор параметров</div>
+              <p class="card-text mb-auto">Используемые библиотеки: sklearn, НЕ ЗАБЫТЬ ДОПИСАТЬ</p>
+              <a href="/train" class="btn btn-primary">учить</a>
+
+            </div>
+            <img class="card-img-right flex-auto d-none d-md-block" data-src="holder.js/200x250?theme=thumb" alt="Thumbnail [100x100]" style="width: 200px; height: 250px;" src="http://iteach.vspu.ru/files/2019/07/Neyroseti-960x540.png" data-holder-rendered="true">
+          </div>
+        </div>
+        <div class="col-md-6">
+          <div class="card flex-md-row mb-4 box-shadow h-md-250">
+            <div class="card-body d-flex flex-column align-items-start">
+              <strong class="d-inline-block mb-2 text-success">Predict</strong>
+              <div class="mb-1 text-muted">Предсказание от лучшей команды и лучшей модели</div>
+              <p class="card-text mb-auto">Вас ждет не только предсказание оракула, но и интерпретация его решения!</p>
+              <a href="/predict" class="btn btn-success">предсказывать</a>
+            </div>
+            <img class="card-img-right flex-auto d-none d-md-block" data-src="holder.js/200x250?theme=thumb" alt="Thumbnail [100x100]" style="width: 200px; height: 250px;" src="https://naked-science.ru/wp-content/uploads/2018/04/field_image_4a261dc6abcea37cf448267c74f0363c.jpg" data-holder-rendered="true">
+          </div>
+        </div>
+</div>
+
+{% endblock %}

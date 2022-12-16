@@ -1,0 +1,20 @@
+{% extends 'base.html' %}
+
+{% block title %}
+Обучение
+{% endblock %}
+
+{% block body %}
+
+<p class="card-text mb-auto">Загрузите зип архив с датасетом</p>
+<form method = "POST"
+   enctype = "multipart/form-data">
+   <input type = "file" name = "file" />
+   <input type = "submit"/>
+</form>
+
+<button type="button" class="button" onclick="this.classList.toggle('button--loading')">
+    <span class="button__text">Train!</span>
+</button>
+
+{% endblock %}
