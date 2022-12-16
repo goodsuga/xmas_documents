@@ -75,7 +75,8 @@ def explain_instance(model, class_map, instance_str, n_features=5, document_name
     exp = explainer.explain_instance(instance_str, 
                                     model.predict_proba,
                                     labels=list(class_map.values()),
-                                    num_features=200)
+                                    num_features=200,
+                                    num_samples=200)
     
     labels = []
     values = model.predict_proba([instance_str])[0]
@@ -97,7 +98,7 @@ def explain_instance(model, class_map, instance_str, n_features=5, document_name
     )
     if document_name is not None:
         fig.update_layout(title=document_name, title_x=0.5, font=dict(size=12))
-    fig.show()
+    return fig
 
 
 from sklearn.linear_model import LogisticRegression, SGDClassifier
@@ -212,9 +213,8 @@ def _logistic_reg_objective(cv: RepeatedStratifiedKFold, X, y, trial: optuna.Tri
 
 def _sgd_objective(cv: RepeatedStratifiedKFold, X, y, trial: optuna.Trial) -> float:
     vec = _propose_vec(trial)
-    losses = ['hinge', 'log_loss', 'log',
+    losses = ['log_loss',
               'modified_huber', 'squared_hinge',
-              'perceptron', 'squared_error',
               'huber', 'epsilon_insensitive',
               'squared_epsilon_insensitive'
     ]

@@ -1,13 +1,16 @@
 from pathlib import Path
 from utils import (
     make_train_dataset, configure_models, make_predict_dataset,
-    _rebuild_sgd, _rebuild_logistic, _rebuild_vec
+    _rebuild_sgd, _rebuild_logistic, _rebuild_vec,
+    explain_instance
 )
 from sklearn.model_selection import RepeatedStratifiedKFold
 import pandas as pd
 from sklearn.pipeline import make_pipeline
 import optuna
 from optuna import visualization
+import numpy as np
+from tqdm import tqdm
 
 class DocumentClassifier:
     def __init__(self):
@@ -55,6 +58,10 @@ class DocumentClassifier:
                 model = _rebuild_sgd(model_studies[modelname].best_params)
             
             self.models[modelname] = make_pipeline(vec, model)
+            self.models[modelname].fit(
+                train_df["Текст документа"],
+                train_df["Класс документа (индекс)"]
+            )
             if self.best_model is None:
                 self.best_model = self.models[modelname]
                 best_score = model_studies[modelname].best_value
@@ -83,14 +90,54 @@ class DocumentClassifier:
 
         return self.info
 
+    def _transform_confidence(self, conf):
+        return {
+            classname: conf
+            for classname, conf
+            in zip(self.class_map.keys(), conf[0])
+        }
+
+    def _avg_pred(self, text: str, mode='single'):
+        pred = np.zeros((1, len(list(self.class_map.keys())) - 1))
+        count = 0
+        for modelname in self.models:
+            pred += self.models[modelname].predict_proba([text])
+            count += 1
+        pred /= count
+        if mode == 'single':
+            return np.argmax(pred)
+        else:
+            return pred
+    
     def predict(self, data_dir: Path):
         df = make_predict_dataset(data_dir)
+        reverse_class_map = {
+            index: classname
+            for index, classname
+            in zip(self.class_map.values(), self.class_map.keys())
+        }
         prediction_data = []
-        for text in make_predict_dataset['Текст документа']:
+        for text in tqdm(df['Текст документа']):
+            info = {
+                "Прогноз (по лучшей модели)": reverse_class_map.get(self.best_model.predict([text])),
+                "Уверенность лучшей модели": self._transform_confidence(self.best_model.predict_proba([text])),
+                "Средняя уверенность (по всем моделям)": self._transform_confidence(self._avg_pred(text, 'all')),
+                "Прогноз всех моделей (методом среднего)": reverse_class_map.get(self._avg_pred(text, 'single')),
+            }
+            info["График уверенности и главных слов"] = {}
+            for modelname in self.models:
+                info["График уверенности и главных слов"][modelname] =\
+                    explain_instance(self.models[modelname], self.class_map, text, document_name="Пример названия документа")
+                #info["График уверенности и главных слов"][modelname].show()
+            pprint(info)
+            prediction_data.append(info)
 
-        return self.best_model.predict(df["Текст документа"])
+        return prediction_data
 
+from pprint import pprint
 
 e = DocumentClassifier()
 e.train(Path(r"C:\Users\teberda\Documents\GitHub\xmas_documents\docs"),
         Path(r"C:\Users\teberda\Documents\GitHub\xmas_documents\classes.json"))
+
+e.predict(Path(r"C:\Users\teberda\Documents\GitHub\xmas_documents\docs"))
