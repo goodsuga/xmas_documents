@@ -39,6 +39,12 @@
   animation: button-loading-spinner 1s ease infinite;
 }
 
+.flex-container {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+
 @keyframes button-loading-spinner {
   from {
     transform: rotate(0turn);

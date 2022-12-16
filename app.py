@@ -6,11 +6,7 @@ from flask import Flask, render_template, url_for, request, redirect
 
 from doc_classification.classifier import DocumentClassifier
 
-
-
-
 app = Flask(__name__)
-
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
@@ -38,15 +34,14 @@ def train():
         Path('./static/images').mkdir(parents=True, exist_ok=True)
         graph_paths = []
         for model, graph_dict in train_info.items():
-            graph_path = f'История_оптимизации_{model}.jpg'
+            graph_path = f'История_оптимизации_{model}'
             graph_dict["История оптимизации"].write_image(os.path.join('./static/images', graph_path))
             graph_paths.append(graph_path)
-            graph_path = f'Важность_параметров_{model}.jpg'
+            graph_path = f'Важность_параметров_{model}'
             graph_dict["Важность параметров"].write_image(os.path.join('./static/images', graph_path))
             graph_paths.append(graph_path)
 
         return render_template("train_results.html", img_paths=graph_paths)
-
 
     return render_template("train.html")
 
