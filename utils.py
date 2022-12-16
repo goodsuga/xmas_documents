@@ -215,8 +215,7 @@ def _sgd_objective(cv: RepeatedStratifiedKFold, X, y, trial: optuna.Trial) -> fl
     vec = _propose_vec(trial)
     losses = ['log_loss',
               'modified_huber',
-              'huber', 'epsilon_insensitive',
-              'squared_epsilon_insensitive'
+              'huber'
     ]
     model = SGDClassifier(
         loss=trial.suggest_categorical("loss", losses),

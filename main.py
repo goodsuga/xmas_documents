@@ -11,6 +11,7 @@ import optuna
 from optuna import visualization
 import numpy as np
 from tqdm import tqdm
+import plotly.graph_objects as go
 
 class DocumentClassifier:
     def __init__(self):
@@ -47,6 +48,7 @@ class DocumentClassifier:
         self.models = {}
         self.info = {}
         self.best_model = None
+        self.best_model_name = None
         best_score = None
 
         for modelname in model_studies:
@@ -65,10 +67,12 @@ class DocumentClassifier:
             if self.best_model is None:
                 self.best_model = self.models[modelname]
                 best_score = model_studies[modelname].best_value
+                self.best_model_name = modelname
             else:
                 if best_score < model_studies[modelname].best_value:
                     self.best_model = self.models[modelname]
                     best_score = model_studies[modelname].best_value
+                    self.best_model_name = modelname
 
             self.info[modelname] = {
                 "История оптимизации": optuna.visualization.plot_optimization_history(model_studies[modelname]),
@@ -91,11 +95,17 @@ class DocumentClassifier:
         return self.info
 
     def _transform_confidence(self, conf):
-        return {
-            classname: conf
-            for classname, conf
-            in zip(self.class_map.keys(), conf[0])
-        }
+        xs = []
+        ys = []
+        for classname, conf in zip(self.class_map.keys(), conf[0]):
+            xs.append(classname)
+            ys.append(conf)
+        fig = go.Figure()
+        fig.add_trace(go.Bar(
+            x=xs,
+            y=ys
+        ))
+        return fig
 
     def _avg_pred(self, text: str, mode='single'):
         pred = np.zeros((1, len(list(self.class_map.keys())) - 1))
@@ -124,11 +134,21 @@ class DocumentClassifier:
                 "Средняя уверенность (по всем моделям)": self._transform_confidence(self._avg_pred(text, 'all')),
                 "Прогноз всех моделей (методом среднего)": reverse_class_map.get(self._avg_pred(text, 'single')),
             }
+            info["Уверенность лучшей модели"].update_layout(
+                title=f"Уверенности {self.best_model_name}",
+                title_x=0.5
+            )
+            info["Средняя уверенность (по всем моделям)"].update_layout(
+                title=f"Средняя уверенность по всем моделям",
+                title_x=0.5
+            )
+            info["Уверенность лучшей модели"].show()
+            info["Средняя уверенность (по всем моделям)"].show()
             info["График уверенности и главных слов"] = {}
             for modelname in self.models:
                 info["График уверенности и главных слов"][modelname] =\
                     explain_instance(self.models[modelname], self.class_map, text, document_name="Пример названия документа")
-                info["График уверенности и главных слов"][modelname].show()
+                #info["График уверенности и главных слов"][modelname].show()
             pprint(info)
             prediction_data.append(info)
 
