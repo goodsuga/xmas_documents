@@ -12,6 +12,75 @@ from optuna import visualization
 import numpy as np
 from tqdm import tqdm
 import plotly.graph_objects as go
+import numpy as np
+from collections import Counter
+from random import choices, randint
+from copy import deepcopy
+
+class PhraseInterpreter:
+    def __init__(self):
+        pass
+
+    def interpret_phrase(self, model, phrase, classnames, n_runs=20, features=5, document_name=""):
+        base = model.predict_proba([phrase]) #np.random.random(4)
+
+        #fn = model.predict_proba
+        words = phrase.split() #note that split without arguments splits on whitespace
+        pairs = {words[i]+' '+words[i+1]: 0.0 for i in range(len(words)-1)}
+        pair_counts = {word: np.zeros(base.shape[-1]) for word in pairs}
+
+        unique_keys = list(pairs.keys())
+        unique_pairs = len(list(pairs.keys()))
+        for i in range(n_runs):
+            text = deepcopy(phrase)
+            leave_out = choices(unique_keys, k=randint(1, unique_pairs-1))
+            for wordpair in leave_out:
+                text = text.replace(wordpair, "")
+                pair_counts[wordpair] += 1
+            
+            pred = model.predict_proba([text])
+            diff = base - pred
+            for wordpair in leave_out:
+                pairs[wordpair] += diff
+            
+        for wordpair in pairs:
+            pairs[wordpair] /= pair_counts.get(wordpair, 0) + 1
+        
+        print(pairs[list(pairs.keys())[0]])
+        def merge_lists(wdp, vals):
+            lst = [wdp]
+            lst.extend(vals.tolist()[0])
+            return lst
+        # transform pairs
+        datarows = [
+            merge_lists(wordpair, pairs[wordpair])
+            for wordpair in pairs
+        ]
+        print(datarows[:3])
+        data = pd.DataFrame(datarows, columns=['Фраза'] + classnames)
+
+        classnames_updated = []
+        for column in list(data.columns)[1:]:
+            data.sort_values(by=column, ascending=False, inplace=True)
+            data.reset_index(inplace=True, drop=True)
+            top_n = ";".join(data.iloc[:features].loc[:, "Фраза"])
+            classnames_updated.append(f"{column} [{top_n}]")
+
+        print(classnames_updated)
+        print(base)
+        fig = go.Figure()
+        fig.add_trace(
+            go.Scatterpolar(
+                r=base.tolist()[0],
+                theta=classnames_updated,
+                fill='toself'
+            )
+        )
+        
+        fig.update_layout(font=dict(size=12))
+        return fig
+
+
 
 class DocumentClassifier:
     def __init__(self):
@@ -19,12 +88,12 @@ class DocumentClassifier:
 
     def train(self, data_dir: Path, class_file: Path, allowed_models="all", max_iters=150):
         train_df = make_train_dataset(data_dir, class_file)
-        class_map = pd.factorize(train_df['Класс документа'])
         class_map = {
             document_class: document_class_index
             for document_class_index, document_class 
-            in zip(class_map[0], class_map[1])
+            in zip(range(len(train_df['Класс документа'])), train_df['Класс документа'].unique())
         }
+        print(class_map)
         self.class_map = class_map
 
         train_df['Класс документа (индекс)'] = train_df['Класс документа'].apply(class_map.get)
@@ -108,7 +177,7 @@ class DocumentClassifier:
         return fig
 
     def _avg_pred(self, text: str, mode='single'):
-        pred = np.zeros((1, len(list(self.class_map.keys())) - 1))
+        pred = np.zeros((1, len(list(self.class_map.keys()))))
         count = 0
         for modelname in self.models:
             pred += self.models[modelname].predict_proba([text])
@@ -147,15 +216,14 @@ class DocumentClassifier:
             info["График уверенности и главных слов"] = {}
             for modelname in self.models:
                 info["График уверенности и главных слов"][modelname] =\
-                    explain_instance(self.models[modelname], self.class_map, text, document_name="Пример названия документа")
-                #info["График уверенности и главных слов"][modelname].show()
+                    PhraseInterpreter().interpret_phrase(self.models[modelname], text, list(self.class_map.keys()))
+                info["График уверенности и главных слов"][modelname].show()
             pprint(info)
             prediction_data.append(info)
 
         return prediction_data
 
 from pprint import pprint
-
 e = DocumentClassifier()
 e.train(Path(r"C:\Users\teberda\Documents\GitHub\xmas_documents\docs"),
         Path(r"C:\Users\teberda\Documents\GitHub\xmas_documents\classes.json"))
