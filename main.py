@@ -6,6 +6,8 @@ from utils import (
 from sklearn.model_selection import RepeatedStratifiedKFold
 import pandas as pd
 from sklearn.pipeline import make_pipeline
+import optuna
+from optuna import visualization
 
 class DocumentClassifier:
     def __init__(self):
@@ -40,6 +42,7 @@ class DocumentClassifier:
         self.model_studies = model_studies
 
         self.models = {}
+        self.info = {}
         self.best_model = None
         best_score = None
 
@@ -59,11 +62,32 @@ class DocumentClassifier:
                 if best_score < model_studies[modelname].best_value:
                     self.best_model = self.models[modelname]
                     best_score = model_studies[modelname].best_value
-        
-        return self
+
+            self.info[modelname] = {
+                "История оптимизации": optuna.visualization.plot_optimization_history(model_studies[modelname]),
+                "Важность параметров": optuna.visualization.plot_param_importances(model_studies[modelname]),
+                "F1(macro) на кросс-валидации": model_studies[modelname].best_value
+            }
+            self.info[modelname]['История оптимизации'].update_layout(
+                title=f"История оптимизации {modelname}",
+                title_x=0.5,
+                yaxis_title="Значение метрики",
+                xaxis_title="Шаг оптимизации"
+            )
+            self.info[modelname]['Важность параметров'].update_layout(
+                title=f"Важность параметров {modelname}",
+                title_x=0.5,
+                yaxis_title="Гиперпараметр",
+                xaxis_title="Важность для метрики"
+            )
+
+        return self.info
 
     def predict(self, data_dir: Path):
         df = make_predict_dataset(data_dir)
+        prediction_data = []
+        for text in make_predict_dataset['Текст документа']:
+
         return self.best_model.predict(df["Текст документа"])
 
 
