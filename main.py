@@ -1,8 +1,6 @@
 from pathlib import Path
 from utils import (
-    make_train_dataset, configure_models, make_predict_dataset,
-    _rebuild_sgd, _rebuild_logistic, _rebuild_vec,
-    explain_instance
+    OptimizableModelBase, make_predict_dataset, make_train_dataset
 )
 from sklearn.model_selection import RepeatedStratifiedKFold
 import pandas as pd
@@ -16,6 +14,7 @@ import numpy as np
 from collections import Counter
 from random import choices, randint
 from copy import deepcopy
+from sklearn.linear_model import LogisticRegression, SGDClassifier
 
 class PhraseInterpreter:
     def __init__(self):
@@ -63,12 +62,28 @@ class PhraseInterpreter:
         fig.show()
         return fig, texts
 
+MODEL_BASES = {
+    "logistic": OptimizableModelBase(
+            LogisticRegression,
+            {
+                "solver": lambda trial: trial.suggest_categorical("solver", ["newton-cg", "sag", "saga", "lbfgs"]),
+                "C": lambda trial: trial.suggest_float("C", 0.001, 10.0)
+            }
+        ),
+    "sgd": OptimizableModelBase(
+            SGDClassifier,
+            {
+                "loss": lambda trial: trial.suggest_categorical("loss", ['log_loss', 'modified_huber']),
+                "penalty": lambda trial: trial.suggest_categorical("penalty", ["l1", "l2", "elasticnet"])
+            }
+    )
+}
 
 class DocumentClassifier:
     def __init__(self):
         pass
 
-    def train(self, data_dir: Path, class_file: Path, allowed_models="all", max_iters=150):
+    def train(self, data_dir: Path, class_file: Path, allowed_models="all", max_iters=3):
         train_df = make_train_dataset(data_dir, class_file)
         class_map = {
             document_class: document_class_index
@@ -79,22 +94,22 @@ class DocumentClassifier:
         self.class_map = class_map
 
         train_df['Класс документа (индекс)'] = train_df['Класс документа'].apply(class_map.get)
-        allowed = ["linear", "sgd"]
 
         self.cv = RepeatedStratifiedKFold(
             n_splits=5,
             n_repeats=5,
             random_state=42
         )
-
-        model_studies = configure_models(
-            train_df["Текст документа"],
-            train_df["Класс документа (индекс)"],
-            self.cv,
-            allowed,
-            max_iters={"linear": 5, "sgd": 5}
-        )
-        self.model_studies = model_studies
+        
+        self.model_studies = {}
+        for model in MODEL_BASES:
+            obj = MODEL_BASES[model].get_optimization_objective(
+                train_df["Текст документа"],
+                train_df["Класс документа (индекс)"],
+                self.cv
+            )
+            self.model_studies[model] = optuna.create_study(direction='maximize')
+            self.model_studies[model].optimize(obj, n_trials=max_iters)
 
         self.models = {}
         self.info = {}
@@ -102,33 +117,30 @@ class DocumentClassifier:
         self.best_model_name = None
         best_score = None
 
-        for modelname in model_studies:
-            vec = _rebuild_vec(model_studies[modelname].best_params)
-            model_studies[modelname].best_params['cv'] = self.cv
-            if modelname == "linear":
-                model = _rebuild_logistic(model_studies[modelname].best_params)
-            elif modelname == "sgd":
-                model = _rebuild_sgd(model_studies[modelname].best_params)
-            
-            self.models[modelname] = make_pipeline(vec, model)
+        for modelname in MODEL_BASES:
+            model = make_pipeline(
+                MODEL_BASES[modelname].rebuild_vectorizer(self.model_studies[modelname].best_params),
+                MODEL_BASES[modelname].rebuild_model(self.model_studies[modelname].best_params)
+            )
+            self.models[modelname] = model
             self.models[modelname].fit(
                 train_df["Текст документа"],
                 train_df["Класс документа (индекс)"]
             )
             if self.best_model is None:
                 self.best_model = self.models[modelname]
-                best_score = model_studies[modelname].best_value
+                best_score = self.model_studies[modelname].best_value
                 self.best_model_name = modelname
             else:
-                if best_score < model_studies[modelname].best_value:
+                if best_score < self.model_studies[modelname].best_value:
                     self.best_model = self.models[modelname]
-                    best_score = model_studies[modelname].best_value
+                    best_score = self.model_studies[modelname].best_value
                     self.best_model_name = modelname
 
             self.info[modelname] = {
-                "История оптимизации": optuna.visualization.plot_optimization_history(model_studies[modelname]),
-                "Важность параметров": optuna.visualization.plot_param_importances(model_studies[modelname]),
-                "F1(macro) на кросс-валидации": model_studies[modelname].best_value
+                "История оптимизации": optuna.visualization.plot_optimization_history(self.model_studies[modelname]),
+                "Важность параметров": optuna.visualization.plot_param_importances(self.model_studies[modelname]),
+                "F1(macro) на кросс-валидации": self.model_studies[modelname].best_value
             }
             self.info[modelname]['История оптимизации'].update_layout(
                 title=f"История оптимизации {modelname}",
