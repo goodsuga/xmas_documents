@@ -174,6 +174,7 @@ class DocumentClassifier:
                 xaxis_title="Важность для метрики"
             )
 
+        pprint(self.info)
         return self.info
 
     def _transform_confidence(self, conf, avg_conf):
