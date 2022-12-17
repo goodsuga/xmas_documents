@@ -1,44 +1,106 @@
+from pathlib import Path
+from .utils import (
+    OptimizableModelBase, make_predict_dataset, make_train_dataset, clear_texts
+)
+from sklearn.model_selection import RepeatedStratifiedKFold
+import pandas as pd
+from sklearn.pipeline import make_pipeline
 import optuna
 from optuna import visualization
 import numpy as np
-import pandas as pd
-import plotly.graph_objects as go
-from pathlib import Path
-from sklearn.model_selection import RepeatedStratifiedKFold
-from sklearn.pipeline import make_pipeline
 from tqdm import tqdm
-from pprint import pprint
+import plotly.graph_objects as go
+import numpy as np
+from collections import Counter
+from random import choices, randint
+from copy import deepcopy
+from sklearn.linear_model import LogisticRegression, SGDClassifier
 
-from .utils import (
-    make_train_dataset, configure_models, make_predict_dataset,
-    _rebuild_sgd, _rebuild_logistic, _rebuild_vec,
-    explain_instance, clear_texts
-)
+class PhraseInterpreter:
+    def __init__(self):
+        pass
 
+    def interpret_document(self, model, text, classnames, n_runs=200, features=5, document_name="", avg_confidence=None):
+        base = model.predict_proba([text])[0]
 
+        words = np.array(text.split(" "))
+        imps = np.zeros((len(words), len(base)))
 
+        for i in tqdm(list(range(n_runs))):
+            take = np.random.choice(np.arange(0, len(words)), size=randint(1, len(words)-1), replace=False)
+            pred = model.predict_proba([" ".join(words[take])])[0]
+            diff = pred-base # полож. знач ==> важно для класса
+            imps[take] += diff
+
+        predicted_class = np.argmax(base)
+        most_important = np.argsort(imps[:, predicted_class])
+        texts = []
+        for i in range(features):
+            to_append = ' '.join(words[max(0, most_important[i]-10):most_important[i]])
+            to_append += '<span style="color: red">'
+            to_append += words[most_important[i]] + "</span>"
+            if most_important[i] != len(words)-1:
+                to_append += ' '.join(words[most_important[i]+1:min(len(words), most_important[i]+10)])
+            texts.append(to_append)
+        texts = ";".join(texts)
+
+        fig = go.Figure()
+        fig.add_trace(
+            go.Scatterpolar(
+                r=base,
+                theta=classnames,
+                fill='toself',
+                name="Уверенность модели",
+            )
+        )
+        if avg_confidence is not None:
+            fig.add_trace(
+                 go.Scatterpolar(
+                    r=avg_confidence,
+                    theta=classnames,
+                    fill='toself',
+                    name="Средняя уверенность",
+                    fillcolor="grey",
+                    opacity=0.45
+            )
+        )
+        fig.update_layout(font=dict(size=16))
+        # fig.show()
+        return fig, texts
+
+MODEL_BASES = {
+    "logistic": OptimizableModelBase(
+            LogisticRegression,
+            {
+                "solver": lambda trial: trial.suggest_categorical("solver", ["newton-cg", "sag", "saga", "lbfgs"]),
+                "C": lambda trial: trial.suggest_float("C", 0.001, 10.0)
+            }
+        ),
+    "sgd": OptimizableModelBase(
+            SGDClassifier,
+            {
+                "loss": lambda trial: trial.suggest_categorical("loss", ['log_loss', 'modified_huber']),
+                "penalty": lambda trial: trial.suggest_categorical("penalty", ["l1", "l2", "elasticnet"])
+            }
+    )
+}
 
 class DocumentClassifier:
     def __init__(self):
         pass
 
-    def train(self, data_path: Path, allowed_models="all", max_iters=150):
+    def train(self, data_path: Path, allowed_models="all", max_iters=3):
         train_df = pd.read_parquet(data_path)
         train_df.loc[:, "Текст документа"] = clear_texts(train_df['Текст документа'])
-        class_map = pd.factorize(train_df['Класс документа'])
         class_map = {
             document_class: document_class_index
             for document_class_index, document_class
-            in zip(class_map[0], class_map[1])
+            in zip(range(len(train_df['Класс документа'])), train_df['Класс документа'].unique())
         }
+        print(class_map)
         self.class_map = class_map
 
         train_df['Класс документа (индекс)'] = train_df['Класс документа'].apply(class_map.get)
-        print(train_df)
-        allowed = [
-           "linear",
-        #   "sgd"
-        ]
 
         self.cv = RepeatedStratifiedKFold(
             n_splits=5,
@@ -46,14 +108,15 @@ class DocumentClassifier:
             random_state=42
         )
 
-        model_studies = configure_models(
-            train_df["Текст документа"],
-            train_df["Класс документа (индекс)"],
-            self.cv,
-            allowed,
-            max_iters={"linear": 5, "sgd": 5}
-        )
-        self.model_studies = model_studies
+        self.model_studies = {}
+        for model in MODEL_BASES:
+            obj = MODEL_BASES[model].get_optimization_objective(
+                train_df["Текст документа"],
+                train_df["Класс документа (индекс)"],
+                self.cv
+            )
+            self.model_studies[model] = optuna.create_study(direction='maximize')
+            self.model_studies[model].optimize(obj, n_trials=max_iters)
 
         self.models = {}
         self.info = {}
@@ -61,33 +124,30 @@ class DocumentClassifier:
         self.best_model_name = None
         best_score = None
 
-        for modelname in model_studies:
-            vec = _rebuild_vec(model_studies[modelname].best_params)
-            model_studies[modelname].best_params['cv'] = self.cv
-            if modelname == "linear":
-                model = _rebuild_logistic(model_studies[modelname].best_params)
-            elif modelname == "sgd":
-                model = _rebuild_sgd(model_studies[modelname].best_params)
-
-            self.models[modelname] = make_pipeline(vec, model)
+        for modelname in MODEL_BASES:
+            model = make_pipeline(
+                MODEL_BASES[modelname].rebuild_vectorizer(self.model_studies[modelname].best_params),
+                MODEL_BASES[modelname].rebuild_model(self.model_studies[modelname].best_params)
+            )
+            self.models[modelname] = model
             self.models[modelname].fit(
                 train_df["Текст документа"],
                 train_df["Класс документа (индекс)"]
             )
             if self.best_model is None:
                 self.best_model = self.models[modelname]
-                best_score = model_studies[modelname].best_value
+                best_score = self.model_studies[modelname].best_value
                 self.best_model_name = modelname
             else:
-                if best_score < model_studies[modelname].best_value:
+                if best_score < self.model_studies[modelname].best_value:
                     self.best_model = self.models[modelname]
-                    best_score = model_studies[modelname].best_value
+                    best_score = self.model_studies[modelname].best_value
                     self.best_model_name = modelname
 
             self.info[modelname] = {
-                "История оптимизации": optuna.visualization.plot_optimization_history(model_studies[modelname]),
-                "Важность параметров": optuna.visualization.plot_param_importances(model_studies[modelname]),
-                "F1(macro) на кросс-валидации": model_studies[modelname].best_value
+                "История оптимизации": optuna.visualization.plot_optimization_history(self.model_studies[modelname]),
+                "Важность параметров": optuna.visualization.plot_param_importances(self.model_studies[modelname]),
+                "F1(macro) на кросс-валидации": self.model_studies[modelname].best_value
             }
             self.info[modelname]['История оптимизации'].update_layout(
                 title=f"История оптимизации {modelname}",
@@ -104,21 +164,30 @@ class DocumentClassifier:
 
         return self.info
 
-    def _transform_confidence(self, conf):
+    def _transform_confidence(self, conf, avg_conf):
         xs = []
         ys = []
-        for classname, conf in zip(self.class_map.keys(), conf[0]):
+        ys_avg = []
+        for classname, conf, avg_conf_val in zip(map(lambda key: key.replace("Договоры для акселератора/", ""),
+                                                     self.class_map.keys()), conf[0], avg_conf[0]):
             xs.append(classname)
             ys.append(conf)
+            ys_avg.append(avg_conf_val)
         fig = go.Figure()
         fig.add_trace(go.Bar(
             x=xs,
-            y=ys
+            y=ys,
+            name="Уверенность лучшей модели",
+            opacity=0.9
         ))
+        fig.add_trace(
+            go.Bar(x=xs, y=ys_avg, name="Средняя уверенность", opacity=0.9)
+        )
+        fig.update_layout(title="Уверенность лучшей модели и средняя уверенность", title_x=0.5, font=dict(size=16))
         return fig
 
     def _avg_pred(self, text: str, mode='single'):
-        pred = np.zeros((1, len(list(self.class_map.keys())) - 1))
+        pred = np.zeros((1, len(list(self.class_map.keys()))))
         count = 0
         for modelname in self.models:
             pred += self.models[modelname].predict_proba([text])
@@ -129,8 +198,10 @@ class DocumentClassifier:
         else:
             return pred
 
-    def predict(self, data_dir: Path):
-        df = make_predict_dataset(data_dir)
+    def predict(self, data_path: Path):
+        df = pd.read_parquet(data_path)
+        df.loc[:, "Текст документа"] = clear_texts(df['Текст документа'])
+        df.to_parquet("demo_pred.pqt")
         reverse_class_map = {
             index: classname
             for index, classname
@@ -140,26 +211,22 @@ class DocumentClassifier:
         for text in tqdm(df['Текст документа']):
             info = {
                 "Прогноз (по лучшей модели)": reverse_class_map.get(self.best_model.predict([text])[0]),
-                "Уверенность лучшей модели": self._transform_confidence(self.best_model.predict_proba([text])),
-                "Средняя уверенность (по всем моделям)": self._transform_confidence(self._avg_pred(text, 'all')),
                 "Прогноз всех моделей (методом среднего)": reverse_class_map.get(self._avg_pred(text, 'single')),
+                "Уверенность": self._transform_confidence(self.best_model.predict_proba([text]), self._avg_pred(text, 'all'))
             }
-            info["Уверенность лучшей модели"].update_layout(
-                title=f"Уверенности {self.best_model_name}",
+            info["Уверенность"].update_layout(
+                title=f"Уверенность лучшей модели и средняя уверенность",
                 title_x=0.5
             )
-            info["Средняя уверенность (по всем моделям)"].update_layout(
-                title=f"Средняя уверенность по всем моделям",
-                title_x=0.5
+            # info["Уверенность"].show()
+            interpret_plot, texts = PhraseInterpreter().interpret_document(
+                self.best_model, text, list(map(lambda key: key.replace("Договоры для акселератора/", ""), self.class_map.keys())),
+                avg_confidence=self._avg_pred(text, 'all')[0]
             )
-            info["Уверенность лучшей модели"].show()
-            info["Средняя уверенность (по всем моделям)"].show()
-            info["График уверенности и главных слов"] = {}
-            for modelname in self.models:
-                info["График уверенности и главных слов"][modelname] =\
-                    explain_instance(self.models[modelname], self.class_map, text, document_name="Пример названия документа")
-                #info["График уверенности и главных слов"][modelname].show()
-            pprint(info)
+            info["Уверенность (лепестки)"] = interpret_plot
+            info["Главные фразы"] = texts
+            print(texts)
+            # interpret_plot.show()
             prediction_data.append(info)
 
         return prediction_data
