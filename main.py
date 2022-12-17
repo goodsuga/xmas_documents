@@ -15,6 +15,8 @@ from collections import Counter
 from random import choices, randint
 from copy import deepcopy
 from sklearn.linear_model import LogisticRegression, SGDClassifier
+from sklearn.neighbors import KNeighborsClassifier as KNC
+from sklearn.naive_bayes import MultinomialNB
 
 class PhraseInterpreter:
     def __init__(self):
@@ -37,8 +39,8 @@ class PhraseInterpreter:
         texts = []
         for i in range(features):
             to_append = ' '.join(words[max(0, most_important[i]-10):most_important[i]])
-            to_append += '<span style="color: red">'
-            to_append += words[most_important[i]] + "</span>"
+            to_append += ' <span style="color: red">'
+            to_append += words[most_important[i]] + "</span> "
             if most_important[i] != len(words)-1:
                 to_append += ' '.join(words[most_important[i]+1:min(len(words), most_important[i]+10)])
             texts.append(to_append)
@@ -82,6 +84,17 @@ MODEL_BASES = {
                 "loss": lambda trial: trial.suggest_categorical("loss", ['log_loss', 'modified_huber']),
                 "penalty": lambda trial: trial.suggest_categorical("penalty", ["l1", "l2", "elasticnet"])
             }
+    ),
+    "kneighbors": OptimizableModelBase(
+        KNC,
+        {
+            "metric": lambda trial: trial.suggest_categorical("metric", ["minkowski", "euclidean", "manhattan"]),
+            "n_neighbors": lambda trial: trial.suggest_int("n_neighbors", 1, 32)
+        }
+    ),
+    "bayes": OptimizableModelBase(
+        MultinomialNB,
+        {}
     )
 }
 
@@ -89,7 +102,7 @@ class DocumentClassifier:
     def __init__(self):
         pass
 
-    def train(self, data_dir: Path, class_file: Path, allowed_models="all", max_iters=3):
+    def train(self, data_dir: Path, class_file: Path, allowed_models="all", max_iters=50):
         train_df = make_train_dataset(data_dir, class_file)
         class_map = {
             document_class: document_class_index
