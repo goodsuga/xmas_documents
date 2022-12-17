@@ -66,7 +66,7 @@ def clear_texts(texts: Iterable) -> 'List[str]':
     """
     Чистим текст от мусора в виде служебных символов
     """
-    allowed_chars = " абвгдеёжзийклмонпрстуфхцчшщъыьэюяabcdefghijklmnopqrstuvwxyz"
+    allowed_chars = " абвгдеёжзийклмонпрстуфхцчшщъыьэюяabcdefghijklmnopqrstuvwxyz-"
     def preprocess(text):
         clear = text.replace("\n", " ").lower()
         clear = "".join([c for c in clear if c in allowed_chars])
