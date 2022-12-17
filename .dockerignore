@@ -1,0 +1,5 @@
+/venv
+/static/images
+/train_files
+/predict_files
+/doc_classification/__pycache__

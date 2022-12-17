@@ -15,12 +15,14 @@ from collections import Counter
 from random import choices, randint
 from copy import deepcopy
 from sklearn.linear_model import LogisticRegression, SGDClassifier
+from sklearn.neighbors import KNeighborsClassifier as KNC
+from sklearn.naive_bayes import MultinomialNB
 
 class PhraseInterpreter:
     def __init__(self):
         pass
 
-    def interpret_document(self, model, text, classnames, n_runs=200, features=5, document_name="", avg_confidence=None):
+    def interpret_document(self, model, text, classnames, n_runs=2000, features=5, document_name="", avg_confidence=None):
         base = model.predict_proba([text])[0]
 
         words = np.array(text.split(" "))
@@ -32,17 +34,40 @@ class PhraseInterpreter:
             diff = pred-base # полож. знач ==> важно для класса
             imps[take] += diff
 
+
         predicted_class = np.argmax(base)
-        most_important = np.argsort(imps[:, predicted_class])
-        texts = []
-        for i in range(features):
-            to_append = ' '.join(words[max(0, most_important[i]-10):most_important[i]])
-            to_append += '<span style="color: red">'
-            to_append += words[most_important[i]] + "</span>"
-            if most_important[i] != len(words)-1:
-                to_append += ' '.join(words[most_important[i]+1:min(len(words), most_important[i]+10)])
-            texts.append(to_append)
-        texts = ";".join(texts)
+        gap = 10
+        top_features = []
+        for start, end in zip(range(len(words)), range(gap, len(words))):
+            combo_imp = imps[start:end, predicted_class].sum()
+            if len(top_features) < features:
+                top_features.append(
+                    ([start, end], combo_imp)
+                )
+            else:
+                for b in range(len(top_features)):
+                    if top_features[b][1] < combo_imp:
+                        top_features[b] = ([start, end], combo_imp)
+                        break
+
+        print(top_features)
+        texts = ""
+        for feature in top_features:
+            sep_words = list(words[feature[0][0]:feature[0][1]])
+            top_word = np.argmax(imps[feature[0][0]:feature[0][1], predicted_class], axis=0)
+            sep_words[top_word] = '<span style="color: red"> ' + sep_words[top_word] + " </span>"
+            texts += " ".join(sep_words) + ";"
+
+        #most_important = np.argsort(imps[:, predicted_class])
+        #texts = []
+        #for i in range(features):
+        #    to_append = ' '.join(words[max(0, most_important[i]-10):most_important[i]])
+        #    to_append += ' <span style="color: red">'
+        #    to_append += words[most_important[i]] + "</span> "
+        #    if most_important[i] != len(words)-1:
+        #        to_append += ' '.join(words[most_important[i]+1:min(len(words), most_important[i]+10)])
+        #    texts.append(to_append)
+        #texts = ";".join(texts)
 
         fig = go.Figure()
         fig.add_trace(
@@ -82,6 +107,17 @@ MODEL_BASES = {
                 "loss": lambda trial: trial.suggest_categorical("loss", ['log_loss', 'modified_huber']),
                 "penalty": lambda trial: trial.suggest_categorical("penalty", ["l1", "l2", "elasticnet"])
             }
+    ),
+    "kneighbors": OptimizableModelBase(
+        KNC,
+        {
+            "metric": lambda trial: trial.suggest_categorical("metric", ["minkowski", "euclidean", "manhattan"]),
+            "n_neighbors": lambda trial: trial.suggest_int("n_neighbors", 1, 32)
+        }
+    ),
+    "bayes": OptimizableModelBase(
+        MultinomialNB,
+        {}
     )
 }
 
@@ -89,7 +125,7 @@ class DocumentClassifier:
     def __init__(self):
         pass
 
-    def train(self, data_path: Path, allowed_models="all", max_iters=3):
+    def train(self, data_path: Path, max_iters=2):
         train_df = pd.read_parquet(data_path)
         train_df.loc[:, "Текст документа"] = clear_texts(train_df['Текст документа'])
         class_map = {
@@ -230,6 +266,8 @@ class DocumentClassifier:
             prediction_data.append(info)
 
         return prediction_data
+
+
 
 
 
