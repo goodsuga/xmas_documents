@@ -5,7 +5,9 @@
 
 Сайт будет доступен на http://127.0.0.1:5000/
 
-Работает: 
+docker image build -t flask_docker .
+
+docker run -p 5000:5000 flask_docker
 
 http://127.0.0.1:5000/train 
 
