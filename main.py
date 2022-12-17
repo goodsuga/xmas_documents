@@ -21,65 +21,47 @@ class PhraseInterpreter:
     def __init__(self):
         pass
 
-    def interpret_phrase(self, model, phrase, classnames, n_runs=20, features=5, document_name=""):
-        base = model.predict_proba([phrase]) #np.random.random(4)
+    def interpret_document(self, model, text, classnames, n_runs=200, features=5, document_name="", avg_confidence=None):
+        base = model.predict_proba([text])[0]
 
-        #fn = model.predict_proba
-        words = phrase.split() #note that split without arguments splits on whitespace
-        pairs = {words[i]+' '+words[i+1]: 0.0 for i in range(len(words)-1)}
-        pair_counts = {word: np.zeros(base.shape[-1]) for word in pairs}
+        words = np.array(text.split(" "))
+        imps = np.zeros((len(words), len(base)))
 
-        unique_keys = list(pairs.keys())
-        unique_pairs = len(list(pairs.keys()))
-        for i in range(n_runs):
-            text = deepcopy(phrase)
-            leave_out = choices(unique_keys, k=randint(1, unique_pairs-1))
-            for wordpair in leave_out:
-                text = text.replace(wordpair, "")
-                pair_counts[wordpair] += 1
-            
-            pred = model.predict_proba([text])
-            diff = base - pred
-            for wordpair in leave_out:
-                pairs[wordpair] += diff
-            
-        for wordpair in pairs:
-            pairs[wordpair] /= pair_counts.get(wordpair, 0) + 1
+        for i in tqdm(list(range(n_runs))):
+            take = np.random.choice(np.arange(0, len(words)), size=randint(1, len(words)-1), replace=False)
+            pred = model.predict_proba([" ".join(words[take])])[0]
+            diff = pred-base # полож. знач ==> важно для класса
+            imps[take] += diff
         
-        print(pairs[list(pairs.keys())[0]])
-        def merge_lists(wdp, vals):
-            lst = [wdp]
-            lst.extend(vals.tolist()[0])
-            return lst
-        # transform pairs
-        datarows = [
-            merge_lists(wordpair, pairs[wordpair])
-            for wordpair in pairs
-        ]
-        print(datarows[:3])
-        data = pd.DataFrame(datarows, columns=['Фраза'] + classnames)
-
-        classnames_updated = []
-        for column in list(data.columns)[1:]:
-            data.sort_values(by=column, ascending=False, inplace=True)
-            data.reset_index(inplace=True, drop=True)
-            top_n = ";".join(data.iloc[:features].loc[:, "Фраза"])
-            classnames_updated.append(f"{column} [{top_n}]")
-
-        print(classnames_updated)
-        print(base)
+        predicted_class = np.argmax(base)
+        most_important = np.argsort(imps[:, predicted_class])
+        texts = []
+        for i in range(features):
+            texts.append(' '.join(words[max(0, most_important[i]-10):min(len(words), most_important[i]+10)]))
+        
         fig = go.Figure()
         fig.add_trace(
             go.Scatterpolar(
-                r=base.tolist()[0],
-                theta=classnames_updated,
-                fill='toself'
+                r=base,
+                theta=classnames,
+                fill='toself',
+                name="Уверенность модели",
             )
         )
-        
-        fig.update_layout(font=dict(size=12))
-        return fig
-
+        if avg_confidence is not None:
+            fig.add_trace(
+                 go.Scatterpolar(
+                    r=avg_confidence,
+                    theta=classnames,
+                    fill='toself',
+                    name="Средняя уверенность",
+                    fillcolor="grey",
+                    opacity=0.65
+            )
+        )
+        fig.update_layout(font=dict(size=16))
+        fig.show()
+        return fig, texts
 
 
 class DocumentClassifier:
@@ -163,17 +145,26 @@ class DocumentClassifier:
 
         return self.info
 
-    def _transform_confidence(self, conf):
+    def _transform_confidence(self, conf, avg_conf):
         xs = []
         ys = []
-        for classname, conf in zip(self.class_map.keys(), conf[0]):
+        ys_avg = []
+        for classname, conf, avg_conf_val in zip(map(lambda key: key.replace("Договоры для акселератора/", ""),
+                                                     self.class_map.keys()), conf[0], avg_conf[0]):
             xs.append(classname)
             ys.append(conf)
+            ys_avg.append(avg_conf_val)
         fig = go.Figure()
         fig.add_trace(go.Bar(
             x=xs,
-            y=ys
+            y=ys,
+            name="Уверенность лучшей модели",
+            opacity=0.9
         ))
+        fig.add_trace(
+            go.Bar(x=xs, y=ys_avg, name="Средняя уверенность", opacity=0.9)
+        )
+        fig.update_layout(title="Уверенность лучшей модели и средняя уверенность", title_x=0.5, font=dict(size=16))
         return fig
 
     def _avg_pred(self, text: str, mode='single'):
@@ -199,25 +190,22 @@ class DocumentClassifier:
         for text in tqdm(df['Текст документа']):
             info = {
                 "Прогноз (по лучшей модели)": reverse_class_map.get(self.best_model.predict([text])[0]),
-                "Уверенность лучшей модели": self._transform_confidence(self.best_model.predict_proba([text])),
-                "Средняя уверенность (по всем моделям)": self._transform_confidence(self._avg_pred(text, 'all')),
                 "Прогноз всех моделей (методом среднего)": reverse_class_map.get(self._avg_pred(text, 'single')),
+                "Уверенность": self._transform_confidence(self.best_model.predict_proba([text]), self._avg_pred(text, 'all'))
             }
-            info["Уверенность лучшей модели"].update_layout(
-                title=f"Уверенности {self.best_model_name}",
+            info["Уверенность"].update_layout(
+                title=f"Уверенность лучшей модели и средняя уверенность",
                 title_x=0.5
             )
-            info["Средняя уверенность (по всем моделям)"].update_layout(
-                title=f"Средняя уверенность по всем моделям",
-                title_x=0.5
+            info["Уверенность"].show()
+            interpret_plot, texts = PhraseInterpreter().interpret_document(
+                self.best_model, text, list(map(lambda key: key.replace("Договоры для акселератора/", ""), self.class_map.keys())),
+                avg_confidence=self._avg_pred(text, 'all')[0]
             )
-            info["Уверенность лучшей модели"].show()
-            info["Средняя уверенность (по всем моделям)"].show()
-            info["График уверенности и главных слов"] = {}
-            for modelname in self.models:
-                info["График уверенности и главных слов"][modelname] =\
-                    PhraseInterpreter().interpret_phrase(self.models[modelname], text, list(self.class_map.keys()))
-                info["График уверенности и главных слов"][modelname].show()
+            info["Уверенность (лепестки)"] = interpret_plot
+            info["Главные фразы"] = texts
+            print(texts)
+            interpret_plot.show()
             pprint(info)
             prediction_data.append(info)
 
