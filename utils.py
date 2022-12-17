@@ -107,7 +107,7 @@ class OptimizableModelBase:
         }[vec](**params)
 
     def rebuild_vectorizer(self, params):
-        ngram_range = (params['ngram_start'], params['ngram_end'])
+        ngram_range = (params['ngram_start'], max(params['ngram_start'], params["ngram_end"]))
         paramkeys = ["analyzer", "max_df", "min_df"]
         if params['vectorizer'] == 'Tfidf':
             paramkeys.extend(["use_idf", "norm", "smooth_idf"])

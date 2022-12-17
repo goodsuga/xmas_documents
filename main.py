@@ -36,8 +36,14 @@ class PhraseInterpreter:
         most_important = np.argsort(imps[:, predicted_class])
         texts = []
         for i in range(features):
-            texts.append(' '.join(words[max(0, most_important[i]-10):min(len(words), most_important[i]+10)]))
-        
+            to_append = ' '.join(words[max(0, most_important[i]-10):most_important[i]])
+            to_append += '<span style="color: red">'
+            to_append += words[most_important[i]] + "</span>"
+            if most_important[i] != len(words)-1:
+                to_append += ' '.join(words[most_important[i]+1:min(len(words), most_important[i]+10)])
+            texts.append(to_append)
+        texts = ";".join(texts)
+
         fig = go.Figure()
         fig.add_trace(
             go.Scatterpolar(
@@ -55,7 +61,7 @@ class PhraseInterpreter:
                     fill='toself',
                     name="Средняя уверенность",
                     fillcolor="grey",
-                    opacity=0.65
+                    opacity=0.45
             )
         )
         fig.update_layout(font=dict(size=16))
@@ -193,6 +199,7 @@ class DocumentClassifier:
     
     def predict(self, data_dir: Path):
         df = make_predict_dataset(data_dir)
+        df.to_parquet("demo_pred.pqt")
         reverse_class_map = {
             index: classname
             for index, classname
