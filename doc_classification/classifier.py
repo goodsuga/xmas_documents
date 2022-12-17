@@ -36,8 +36,8 @@ class DocumentClassifier:
         train_df['Класс документа (индекс)'] = train_df['Класс документа'].apply(class_map.get)
         print(train_df)
         allowed = [
-           "linear", 
-            "sgd"
+           "linear",
+        #   "sgd"
         ]
 
         self.cv = RepeatedStratifiedKFold(

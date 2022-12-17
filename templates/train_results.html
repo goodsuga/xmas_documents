@@ -7,6 +7,15 @@
 {% block body %}
 
 <div class="container">
+
+  {% for metric in metrics %}
+  <div class="alert alert-info flex-container">
+    <div>
+      <h2>{{metric.name}}: {{metric.value}}</h2>
+    </div>
+    </div>
+  {% endfor %}
+
   {% for graph in img_paths %}
   <div class="alert alert-info flex-container">
     <div>
@@ -15,6 +24,7 @@
     </div>
     </div>
   {% endfor %}
+
 </div>
 
 {% endblock %}
